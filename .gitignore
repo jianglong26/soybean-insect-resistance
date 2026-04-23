@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# IDE and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Data and model artifacts (too large for GitHub)
+AnhumasPiracicaba/
+outputs/
+checkpoints/
+*.pth
+*.pt
+*.ckpt
+*.pkl
+*.joblib
+
+# Optional env file
+.env

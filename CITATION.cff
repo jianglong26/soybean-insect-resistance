@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+title: Soybean Insect Resistance Screening from UAV RGB Images
+message: If you use this code, please cite it using the metadata in this file.
+type: software
+authors:
+  - given-names: To Be Updated
+    family-names: To Be Updated
+    affiliation: Institute of Mathematics and Computer Sciences (ICMC), University of Sao Paulo (USP)
+repository-code: https://github.com/<org-or-user>/soybean-insect-resistance
+abstract: >-
+  Code for UAV-based soybean genotype screening using dual feature streams
+  (vegetation indices and DINOv3), cross-field similarity analysis, and
+  multi-view Z8 occupancy ranking.
+keywords:
+  - soybean
+  - UAV
+  - high-throughput phenotyping
+  - DINOv3
+  - vegetation indices
+  - insect resistance
+license: MIT
+date-released: 2026-04-23
+version: 0.1.0
