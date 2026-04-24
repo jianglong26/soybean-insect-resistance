@@ -14,7 +14,6 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import cross_val_score
 from sklearn.metrics import mean_absolute_error, r2_score
-from src.config import Config
 
 
 class MultiModalInsectResistanceAnalyzer:
@@ -33,9 +32,9 @@ class MultiModalInsectResistanceAnalyzer:
         # 项目根目录
         self.project_root = self.module_dir.parent.parent
         
-        # 数据和特征路径（通过Config统一管理，支持环境变量）
-        self.data_dir = Config.DATASET_ROOT / 'annotations'
-        self.feature_dir = Config.FEATURE_ROOT
+        # 数据和特征路径（使用项目根目录）
+        self.data_dir = self.project_root / 'AnhumasPiracicaba' / 'dataset' / 'annotations'
+        self.feature_dir = self.project_root / 'outputs' / 'features'
         
         # 输出目录（保存在模块内部）
         if feature_type == 'dinov3':

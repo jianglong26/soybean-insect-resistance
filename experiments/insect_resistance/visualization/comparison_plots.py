@@ -11,7 +11,6 @@ from matplotlib.gridspec import GridSpec
 from scipy import stats
 from pathlib import Path
 import json
-from src.config import Config
 
 try:
     from adjustText import adjust_text
@@ -550,7 +549,8 @@ def visualize_genotype_images(genotype_name, num_timepoints=8, feature_type='din
     print(f"{'='*80}\n")
     
     # 项目根目录（向上3级：visualization -> insect_resistance -> experiments -> root）
-    image_dir = Config.IMAGE_ROOT
+    project_root = Path(__file__).parent.parent.parent.parent
+    image_dir = project_root / 'AnhumasPiracicaba' / 'dataset' / 'images'
     
     # 输出目录使用module内部目录
     module_dir = Path(__file__).parent.parent

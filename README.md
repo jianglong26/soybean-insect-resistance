@@ -46,7 +46,6 @@ The project centers on three main scripts:
 Recommended environment:
 
 ```powershell
-conda activate soy
 pip install -r requirements.txt
 ```
 

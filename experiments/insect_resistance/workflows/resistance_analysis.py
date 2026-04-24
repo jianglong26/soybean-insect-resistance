@@ -7,7 +7,6 @@ from ..visualization import *
 import json
 from pathlib import Path
 import datetime
-from src.config import Config
 
 def run_single_experiment(feature_type):
     """运行单个实验"""
@@ -166,7 +165,8 @@ def run_prediction_experiments():
     
     # 加载元数据（用于增强可视化）
     module_dir = Path(__file__).parent.parent
-    metadata_path = Config.ANNOTATION_PATH
+    project_root = module_dir.parent.parent
+    metadata_path = project_root / 'AnhumasPiracicaba' / 'dataset' / 'annotations' / 'dataset_metadata.json'
     with open(metadata_path, 'r', encoding='utf-8') as f:
         metadata = json.load(f)
     

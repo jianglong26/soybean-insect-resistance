@@ -7,6 +7,7 @@ import pandas as pd
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+import matplotlib.patheffects as pe
 from matplotlib.font_manager import FontProperties
 from matplotlib.gridspec import GridSpec
 from matplotlib.ticker import MaxNLocator, FormatStrFormatter
@@ -549,7 +550,21 @@ def analyze_feature_vs_yield_timeseries(feature_type='dinov3'):
         7: 'HighSimilarity + EarlyMaturity + HighGain',
     }
 
-    def _place_labels_sparse(ax, xs, ys, zs, labels, fontsize, alpha=0.75, dist_thr=0.035):
+    def _compute_z8_anchor(xs, ys, zs, xlim, ylim, zlim):
+        """Return a stable Z8 text anchor that stays inside the 3D frame."""
+        xs = np.asarray(xs, dtype=float)
+        ys = np.asarray(ys, dtype=float)
+        zs = np.asarray(zs, dtype=float)
+        x_span = max(np.ptp(xs), 1e-10)
+        y_span = max(np.ptp(ys), 1e-10)
+        z_span = max(np.ptp(zs), 1e-10)
+        # Z8 corner is (max x, min y, max z); keep a tiny inward margin.
+        zx = xlim[1] - 0.018 * x_span
+        zy = ylim[0] + 0.018 * y_span
+        zz = zlim[1] - 0.026 * z_span
+        return zx, zy, zz
+
+    def _place_labels_sparse(ax, xs, ys, zs, labels, fontsize, alpha=0.75, dist_thr=0.035, z8_anchor=None):
         # Place labels by checking overlap in the final 2D projected view.
         # This matches what humans observe in saved figures.
         xs = np.asarray(xs, dtype=float)
@@ -602,11 +617,22 @@ def analyze_feature_vs_yield_timeseries(feature_type='dinov3'):
             (1, 1, 0), (1, 0, 0), (1, -1, 0), (0, -1, 0),
             (-1, -1, 0), (-1, 0, 0), (-1, 1, 0), (0, 1, 0),
         ]
+        # For points near Z8 corner, prioritize left-up / left-down to avoid Z8 text occlusion.
+        dirs_8_avoid_z8 = [
+            (-1, 1, 0), (-1, -1, 0), (-1, 0, 0), (0, -1, 0),
+            (0, 1, 0), (1, -1, 0), (1, 0, 0), (1, 1, 0),
+        ]
         fallback_dirs = [
             (0, -1, 0), (-1, -1, 0), (1, -1, 0), (-1, 0, 0),
             (1, 0, 0), (-1, 1, 0), (1, 1, 0), (0, 1, 0),
             (0, -1, 1), (-1, -1, 1), (1, -1, 1),
             (0, -1, -1), (-1, -1, -1), (1, -1, -1),
+            (0, 0, 1), (0, 0, -1),
+        ]
+        fallback_dirs_avoid_z8 = [
+            (-1, 1, 0), (-1, -1, 0), (-1, 0, 0), (0, -1, 0),
+            (0, 1, 0), (1, -1, 0), (1, 0, 0), (1, 1, 0),
+            (-1, 1, 1), (-1, -1, 1), (-1, 1, -1), (-1, -1, -1),
             (0, 0, 1), (0, 0, -1),
         ]
         primary_scales = [0.25, 0.40, 0.55, 0.75]
@@ -629,13 +655,32 @@ def analyze_feature_vs_yield_timeseries(feature_type='dinov3'):
             px, py = ax.transData.transform((up, vp))
             return px, py
 
-        def _make_pixel_box(px, py, text, pad_px=2.0):
+        def _make_pixel_box(px, py, text, pad_px=2.0, text_ha='left', text_va='baseline'):
             w, h, d = renderer.get_text_width_height_descent(text, text_fp, ismath=False)
-            # Matplotlib text default alignment: left + baseline.
-            x0 = px - pad_px
-            y0 = py - d - pad_px
-            x1 = px + w + pad_px
-            y1 = py + (h - d) + pad_px
+            # Approximate text bounds in display space with basic alignment support.
+            if text_ha == 'right':
+                x0 = px - w - pad_px
+                x1 = px + pad_px
+            elif text_ha == 'center':
+                x0 = px - 0.5 * w - pad_px
+                x1 = px + 0.5 * w + pad_px
+            else:
+                x0 = px - pad_px
+                x1 = px + w + pad_px
+
+            if text_va == 'bottom':
+                y0 = py - pad_px
+                y1 = py + h + pad_px
+            elif text_va == 'top':
+                y0 = py - h - pad_px
+                y1 = py + pad_px
+            elif text_va == 'center':
+                y0 = py - 0.5 * h - pad_px
+                y1 = py + 0.5 * h + pad_px
+            else:
+                # Matplotlib default: baseline
+                y0 = py - d - pad_px
+                y1 = py + (h - d) + pad_px
             return (x0, y0, x1, y1)
 
         def _box_intersects_point(box, px, py, r):
@@ -643,9 +688,9 @@ def analyze_feature_vs_yield_timeseries(feature_type='dinov3'):
             cy = min(max(py, box[1]), box[3])
             return (px - cx) ** 2 + (py - cy) ** 2 <= r ** 2
 
-        def _candidate_metrics(lx, ly, lz, idx):
+        def _candidate_metrics(lx, ly, lz, idx, text_ha='left', text_va='baseline'):
             px, py = _project_to_pixels(lx, ly, lz)
-            box = _make_pixel_box(px, py, labels[idx])
+            box = _make_pixel_box(px, py, labels[idx], text_ha=text_ha, text_va=text_va)
 
             outside = 0.0
             if box[0] < axes_bbox.x0 or box[2] > axes_bbox.x1:
@@ -669,6 +714,26 @@ def analyze_feature_vs_yield_timeseries(feature_type='dinov3'):
 
         for idx in place_order:
             dx, dy, dz = _label_offset(idx)
+            label_key = str(labels[idx]).replace(' ', '').upper()
+            force_lq008_left = label_key == 'LQ008'
+            text_ha = 'right' if force_lq008_left else 'left'
+            text_va = 'bottom' if force_lq008_left else 'baseline'
+            near_z8 = False
+            if z8_anchor is not None:
+                zx, zy, zz = z8_anchor
+                d_z8 = np.sqrt(
+                    ((xs[idx] - zx) / x_rng) ** 2 +
+                    ((ys[idx] - zy) / y_rng) ** 2 +
+                    0.35 * ((zs[idx] - zz) / z_rng) ** 2
+                )
+                near_z8 = d_z8 < 0.18
+            if force_lq008_left:
+                # Targeted override: keep LQ 008 away from the Z8 annotation area.
+                dirs_primary = [(-1, 1, 0)]
+                dirs_fallback = [(-1, -1, 0), (-1, 0, 0), (0, -1, 0)]
+            else:
+                dirs_primary = dirs_8_avoid_z8 if near_z8 else dirs_8
+                dirs_fallback = fallback_dirs_avoid_z8 if near_z8 else fallback_dirs
 
             # Count close neighbors in normalized space to scale offset adaptively.
             neighbor_count = 0
@@ -692,7 +757,7 @@ def analyze_feature_vs_yield_timeseries(feature_type='dinov3'):
 
             best_xyz = (xs[idx], ys[idx], zs[idx])
             best_proj = (px0, py0)
-            best_box = _make_pixel_box(px0, py0, labels[idx])
+            best_box = _make_pixel_box(px0, py0, labels[idx], text_ha=text_ha, text_va=text_va)
             best_overlap = 1e9
             best_cost = 1e9
 
@@ -704,11 +769,18 @@ def analyze_feature_vs_yield_timeseries(feature_type='dinov3'):
                 x_step = min(abs(dx) * scale * local_scale, max_dx)
                 y_step = min(abs(dy) * scale * local_scale, max_dy)
                 z_step = min(dz_abs * scale * local_scale, max_dz)
-                for sx, sy, sz in dirs_8:
+                for sx, sy, sz in dirs_primary:
                     lx = xs[idx] + sx * x_step
                     ly = ys[idx] + sy * y_step
                     lz = zs[idx] + 0.45 * z_step
-                    px, py, box, outside, overlap_area, point_cover_count = _candidate_metrics(lx, ly, lz, idx)
+                    px, py, box, outside, overlap_area, point_cover_count = _candidate_metrics(
+                        lx,
+                        ly,
+                        lz,
+                        idx,
+                        text_ha=text_ha,
+                        text_va=text_va,
+                    )
                     disp_proj = np.hypot(px - px0, py - py0)
                     if outside == 0 and overlap_area <= 0.0 and point_cover_count == 0:
                         best_xyz = (lx, ly, lz)
@@ -742,11 +814,18 @@ def analyze_feature_vs_yield_timeseries(feature_type='dinov3'):
                     x_step = min(abs(dx) * scale * local_scale, max_dx)
                     y_step = min(abs(dy) * scale * local_scale, max_dy)
                     z_step = min(dz_abs * scale * local_scale, max_dz)
-                    for sx, sy, sz in fallback_dirs:
+                    for sx, sy, sz in dirs_fallback:
                         lx = xs[idx] + sx * x_step
                         ly = ys[idx] + sy * y_step
                         lz = zs[idx] + sz * z_step
-                        px, py, box, outside, overlap_area, point_cover_count = _candidate_metrics(lx, ly, lz, idx)
+                        px, py, box, outside, overlap_area, point_cover_count = _candidate_metrics(
+                            lx,
+                            ly,
+                            lz,
+                            idx,
+                            text_ha=text_ha,
+                            text_va=text_va,
+                        )
                         disp_proj = np.hypot(px - px0, py - py0)
                         if outside == 0 and overlap_area <= 0.0 and point_cover_count == 0:
                             best_xyz = (lx, ly, lz)
@@ -802,6 +881,8 @@ def analyze_feature_vs_yield_timeseries(feature_type='dinov3'):
                 alpha=alpha,
                 color='#111111',
                 fontweight='semibold',
+                ha=text_ha,
+                va=text_va,
                 zorder=10,
                 clip_on=False,
             )
@@ -825,6 +906,55 @@ def analyze_feature_vs_yield_timeseries(feature_type='dinov3'):
             ax.invert_yaxis()
         if ax.zaxis_inverted():
             ax.invert_zaxis()
+
+    def _annotate_z8_in_3d(ax, xs, ys, zs, labels, xlim, ylim, zlim):
+        """Place Z8 label at Z8 region's right-top corner, offset overlapping genotype label if needed."""
+        xs = np.asarray(xs, dtype=float)
+        ys = np.asarray(ys, dtype=float)
+        zs = np.asarray(zs, dtype=float)
+        zx, zy, zz = _compute_z8_anchor(xs, ys, zs, xlim, ylim, zlim)
+        label_color = '#FF2D55'
+        # 1. Draw Z8 annotation
+        txt = ax.text(
+            zx, zy, zz,
+            'Z8',
+            fontsize=13,
+            fontweight='bold',
+            color=label_color,
+            ha='right',
+            va='top',
+            zorder=14,
+            bbox=dict(
+                boxstyle='round,pad=0.14',
+                facecolor='#FFF59D',
+                edgecolor=label_color,
+                linewidth=1.0,
+                alpha=0.30,
+            ),
+        )
+        txt.set_path_effects([
+            pe.withStroke(linewidth=1.4, foreground='white', alpha=0.95),
+            pe.Normal(),
+        ])
+        # 2. Check for genotype label overlap (欧氏距离阈值)
+        dist_thr = 0.08 * (np.ptp(xs) + np.ptp(ys) + np.ptp(zs)) / 3.0
+        for i in range(len(xs)):
+            d = np.sqrt((xs[i] - zx) ** 2 + (ys[i] - zy) ** 2 + (zs[i] - zz) ** 2)
+            if d < dist_thr:
+                # Draw this genotype label稍微错位（往下/左/后偏移）
+                offset = (-0.04 * np.ptp(xs), 0.06 * np.ptp(ys), -0.04 * np.ptp(zs))
+                ax.text(
+                    xs[i] + offset[0],
+                    ys[i] + offset[1],
+                    zs[i] + offset[2],
+                    labels[i],
+                    fontsize=8,
+                    color='#111111',
+                    fontweight='semibold',
+                    alpha=0.82,
+                    zorder=13,
+                    bbox=dict(boxstyle='round,pad=0.08', facecolor='white', edgecolor='#BBBBBB', linewidth=0.7, alpha=0.55),
+                )
 
     w_feature = 0.35
     w_gain = 0.45
@@ -946,7 +1076,27 @@ def analyze_feature_vs_yield_timeseries(feature_type='dinov3'):
         ax.tick_params(axis='both', which='major', labelsize=12)
         ax.zaxis.set_tick_params(labelsize=12)
         _apply_consistent_3d_direction(ax, elev=22, azim=-58)
-        _place_labels_sparse(ax, x_data, ndm_values, yields, names, fontsize=text_size_timeseries, alpha=0.76)
+        z8_anchor_y = _compute_z8_anchor(x_data, ndm_values, yields, xlim_global, ylim_global, zlim_global)
+        _place_labels_sparse(
+            ax,
+            x_data,
+            ndm_values,
+            yields,
+            names,
+            fontsize=text_size_timeseries,
+            alpha=0.76,
+            z8_anchor=z8_anchor_y,
+        )
+        _annotate_z8_in_3d(
+            ax,
+            x_data,
+            ndm_values,
+            yields,
+            names,
+            xlim_global,
+            ylim_global,
+            zlim_global,
+        )
 
     region_handles = [
         plt.Line2D([0], [0], marker='o', color='w', label=f'Z{rid+1}', markerfacecolor=region_colors[rid],
@@ -1066,7 +1216,28 @@ def analyze_feature_vs_yield_timeseries(feature_type='dinov3'):
         ax.tick_params(axis='both', which='major', labelsize=12)
         ax.zaxis.set_tick_params(labelsize=12)
         _apply_consistent_3d_direction(ax, elev=22, azim=-58)
-        _place_labels_sparse(ax, x_data, ndm_values, gain_rates, names, fontsize=text_size_timeseries, alpha=0.95, dist_thr=0.03)
+        z8_anchor_g = _compute_z8_anchor(x_data, ndm_values, gain_rates, xlim_global, ylim_global, zlim_gain_rate_global)
+        _place_labels_sparse(
+            ax,
+            x_data,
+            ndm_values,
+            gain_rates,
+            names,
+            fontsize=text_size_timeseries,
+            alpha=0.95,
+            dist_thr=0.03,
+            z8_anchor=z8_anchor_g,
+        )
+        _annotate_z8_in_3d(
+            ax,
+            x_data,
+            ndm_values,
+            gain_rates,
+            names,
+            xlim_global,
+            ylim_global,
+            zlim_gain_rate_global,
+        )
 
         # Gain-Z8 frequency at each timepoint (Z8 == region id 7)
         for i, g in enumerate(names):
